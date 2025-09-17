@@ -22,13 +22,14 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pyinstaller
+          pip install -r requirements.txt pyinstaller pywin32 pandas openpyxl tkcalendar sv-ttk
 
       - name: Build EXE with PyInstaller
         shell: bash
         run: |
           pyinstaller --noconfirm --onefile --windowed \
             --name OutlookEmailExtractor \
+            --icon assets/OutlookEmailExtractor.ico \
             --hidden-import win32timezone \
             --hidden-import win32com \
             --hidden-import pythoncom \
