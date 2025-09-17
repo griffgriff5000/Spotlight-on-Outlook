@@ -364,8 +364,8 @@ def run_extraction(options: FilterOptions, out_path: str, logbox: ScrolledText, 
         messagebox.showerror("Outlook Error", f"Failed to connect to Outlook:\n{e}"); return
 
     try:
-        status.set("Resolving folder…")
-        log_gui(logbox, "Connecting to Outlook…")
+        status.set("Resolving folder...")
+        log_gui(logbox, "Connecting to Outlook...")
         folder = get_folder_by_path(ns, options.store, options.folder_path)
         log_gui(logbox, f"Using folder: {safe_str(getattr(folder, 'FolderPath', '')) or '(root)'}")
 
@@ -378,7 +378,7 @@ def run_extraction(options: FilterOptions, out_path: str, logbox: ScrolledText, 
         item_count = 0
 
         progress.config(mode="indeterminate"); progress.start(10)
-        status.set("Scanning…")
+        status.set("Scanning...")
 
         column_set = ",".join([
             "EntryID","ConversationID","Subject","SenderName","SenderEmailAddress",
@@ -541,7 +541,7 @@ def run_extraction(options: FilterOptions, out_path: str, logbox: ScrolledText, 
         if not all_rows:
             status.set("No results"); messagebox.showinfo("No Results", "No emails matched your filters."); return
 
-        status.set("Writing Excel…")
+        status.set("Writing Excel...")
         df = pd.DataFrame(all_rows)
         nice_cols = [
             "ReceivedTime","Subject","SenderName","SenderEmail","To","CC",
@@ -647,13 +647,18 @@ class App(tk.Tk):
         self._apply_base_style()
 
         self.status_var = tk.StringVar(value="Ready")
+        self.summary_var = tk.StringVar(value="Pick a store to get started.")
+        self.filter_badge_var = tk.StringVar(value="Active filters: none")
         self._folder_cache: Dict[str, List[str]] = {}
         self._auto_paths_locked = False  # if user manually edits, we stop auto-overwriting
 
         # Header
         hdr = ttk.Frame(self, padding=(10, 10, 10, 0))
         hdr.pack(fill="x")
-        ttk.Label(hdr, text="Outlook Email Extractor", style="Header.TLabel").pack(side="left")
+        title = ttk.Frame(hdr)
+        title.pack(side="left", fill="x", expand=True)
+        ttk.Label(title, text="Outlook Email Extractor", style="Header.TLabel").pack(anchor="w")
+        ttk.Label(title, text="Filter Outlook quickly. Export clean results.", style="Subtitle.TLabel").pack(anchor="w", pady=(2, 0))
         right = ttk.Frame(hdr); right.pack(side="right")
         ttk.Label(right, text="Theme:").pack(side="left", padx=(0,6))
         self.theme_var = tk.StringVar(value="Light")
@@ -661,6 +666,12 @@ class App(tk.Tk):
         self.cmb_theme.pack(side="left")
         self.cmb_theme.bind("<<ComboboxSelected>>", lambda *_: self._apply_theme())
         self._apply_theme(initial=True)
+
+        summary = ttk.Frame(self, padding=(12, 4, 12, 8))
+        summary.pack(fill="x")
+        ttk.Label(summary, textvariable=self.summary_var, style="Summary.TLabel", wraplength=840, justify="left").pack(anchor="w")
+        ttk.Label(summary, textvariable=self.filter_badge_var, style="Badge.TLabel").pack(anchor="w", pady=(2, 0))
+        ttk.Separator(self).pack(fill="x")
 
         # Scrollable content
         scroll = VScrollFrame(self)
@@ -683,8 +694,11 @@ class App(tk.Tk):
 
         ttk.Label(f1, text="Folder path (pick or type):").grid(row=1, column=0, sticky="w", padx=6, pady=4)
         self.folder_var = tk.StringVar(value="")
+        self.folder_var.trace_add("write", lambda *_: self._update_summary())
         self.cmb_folder = ttk.Combobox(f1, textvariable=self.folder_var, values=[], state="normal")
         self.cmb_folder.grid(row=1, column=1, columnspan=2, sticky="ew", padx=6, pady=4)
+        self.cmb_folder.bind("<KeyRelease>", lambda *_: self._update_summary())
+        self.cmb_folder.bind("<FocusOut>", lambda *_: self._update_summary())
 
         self.var_all_folders = tk.BooleanVar(value=True)  # default: whole mailbox
         ttk.Checkbutton(f1, text="Search entire account (all folders)",
@@ -692,7 +706,7 @@ class App(tk.Tk):
                         command=self._update_folder_controls).grid(row=2, column=0, columnspan=3, sticky="w", padx=6, pady=2)
 
         self.var_require_running = tk.BooleanVar(value=False)
-        ttk.Checkbutton(f1, text="Require Outlook already open (don’t launch Outlook)",
+        ttk.Checkbutton(f1, text="Require Outlook already open (don't launch Outlook)",
                         variable=self.var_require_running).grid(row=3, column=0, columnspan=3, sticky="w", padx=6, pady=(2, 0))
 
         # 2) Filters
@@ -705,21 +719,21 @@ class App(tk.Tk):
         if TKCAL_AVAILABLE:
             self.dt_start = DateEntry(f2, date_pattern="dd-mm-yyyy", locale="en_GB")
             self.dt_start.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
-            self.dt_start.bind("<<DateEntrySelected>>", lambda e: self._update_default_paths(force=True))
+            self.dt_start.bind("<<DateEntrySelected>>", lambda *_: (self._update_default_paths(force=True), self._update_summary()))
         else:
             self.dt_start = ttk.Entry(f2); self.dt_start.grid(row=0, column=1, sticky="ew", padx=6, pady=4)
-            self.dt_start.bind("<FocusOut>", lambda e: self._update_default_paths(force=True))
-            self.dt_start.bind("<Return>", lambda e: self._update_default_paths(force=True))
+            self.dt_start.bind("<FocusOut>", lambda *_: (self._update_default_paths(force=True), self._update_summary()))
+            self.dt_start.bind("<Return>", lambda *_: (self._update_default_paths(force=True), self._update_summary()))
 
         ttk.Label(f2, text="End date:").grid(row=0, column=3, sticky="w", padx=6, pady=4)
         if TKCAL_AVAILABLE:
             self.dt_end = DateEntry(f2, date_pattern="dd-mm-yyyy", locale="en_GB")
             self.dt_end.grid(row=0, column=4, sticky="ew", padx=6, pady=4)
-            self.dt_end.bind("<<DateEntrySelected>>", lambda e: self._update_default_paths(force=True))
+            self.dt_end.bind("<<DateEntrySelected>>", lambda *_: (self._update_default_paths(force=True), self._update_summary()))
         else:
             self.dt_end = ttk.Entry(f2); self.dt_end.grid(row=0, column=4, sticky="ew", padx=6, pady=4)
-            self.dt_end.bind("<FocusOut>", lambda e: self._update_default_paths(force=True))
-            self.dt_end.bind("<Return>", lambda e: self._update_default_paths(force=True))
+            self.dt_end.bind("<FocusOut>", lambda *_: (self._update_default_paths(force=True), self._update_summary()))
+            self.dt_end.bind("<Return>", lambda *_: (self._update_default_paths(force=True), self._update_summary()))
 
         today_local = datetime.now().date()
         if TKCAL_AVAILABLE:
@@ -738,27 +752,32 @@ class App(tk.Tk):
             self._update_type_visibility()
             if self.var_has_att.get() == "yes":
                 self.var_save_atts.set(True)
+            self._update_summary()
         self.var_has_att.trace_add("write", _att_changed)
 
         ttk.Label(f2, text="Unread:").grid(row=2, column=0, sticky="w", padx=6, pady=4)
         self.var_unread = tk.StringVar(value="any")
-        ttk.Radiobutton(f2, text="Any", variable=self.var_unread, value="any").grid(row=2, column=1, sticky="w", padx=2)
-        ttk.Radiobutton(f2, text="Only unread", variable=self.var_unread, value="yes").grid(row=2, column=2, sticky="w", padx=2)
-        ttk.Radiobutton(f2, text="Only read", variable=self.var_unread, value="no").grid(row=2, column=3, sticky="w", padx=2)
+        ttk.Radiobutton(f2, text="Any", variable=self.var_unread, value="any", command=self._update_summary).grid(row=2, column=1, sticky="w", padx=2)
+        ttk.Radiobutton(f2, text="Only unread", variable=self.var_unread, value="yes", command=self._update_summary).grid(row=2, column=2, sticky="w", padx=2)
+        ttk.Radiobutton(f2, text="Only read", variable=self.var_unread, value="no", command=self._update_summary).grid(row=2, column=3, sticky="w", padx=2)
 
         self.var_subfolders = tk.BooleanVar(value=True)
-        self.chk_subfolders = ttk.Checkbutton(f2, text="Include subfolders", variable=self.var_subfolders)
+        self.chk_subfolders = ttk.Checkbutton(f2, text="Include subfolders", variable=self.var_subfolders, command=self._update_summary)
         self.chk_subfolders.grid(row=3, column=0, sticky="w", padx=6, pady=4)
 
         ttk.Label(f2, text="Max items (0 = unlimited):").grid(row=3, column=2, sticky="e", padx=6, pady=4)
-        self.spn_max = tk.Spinbox(f2, from_=0, to=500000, increment=100, width=12)
+        self.spn_max = tk.Spinbox(f2, from_=0, to=500000, increment=100, width=12, command=self._update_summary)
         self.spn_max.grid(row=3, column=3, sticky="w", padx=6, pady=4); self.spn_max.delete(0, "end"); self.spn_max.insert(0, "5000")
+        self.spn_max.bind("<KeyRelease>", lambda *_: self._update_summary())
+        self.spn_max.bind("<FocusOut>", lambda *_: self._update_summary())
 
         ttk.Label(f2, text="Subject contains:").grid(row=4, column=0, sticky="w", padx=6, pady=4)
         self.ent_subj = ttk.Entry(f2); self.ent_subj.grid(row=4, column=1, columnspan=2, sticky="ew", padx=6, pady=4)
+        self.ent_subj.bind("<KeyRelease>", lambda *_: self._update_summary())
 
         ttk.Label(f2, text="From contains (name or email):").grid(row=4, column=3, sticky="w", padx=6, pady=4)
         self.ent_from = ttk.Entry(f2); self.ent_from.grid(row=4, column=4, columnspan=2, sticky="ew", padx=6, pady=4)
+        self.ent_from.bind("<KeyRelease>", lambda *_: self._update_summary())
 
         # --- FIX: define advanced flags so _gather_options can read them ---
         self.var_body_prev = tk.BooleanVar(value=False)   # include 200-char body preview
@@ -768,11 +787,11 @@ class App(tk.Tk):
         # Optional UI for those flags
         ttk.Separator(f2, orient="horizontal").grid(row=5, column=0, columnspan=6, sticky="ew", pady=(6,2))
         ttk.Checkbutton(f2, text="Include body preview (first 200 chars)",
-                        variable=self.var_body_prev).grid(row=6, column=0, columnspan=3, sticky="w", padx=6, pady=2)
+                        variable=self.var_body_prev, command=self._update_summary).grid(row=6, column=0, columnspan=3, sticky="w", padx=6, pady=2)
         ttk.Checkbutton(f2, text="Include attachment names",
-                        variable=self.var_att_names).grid(row=6, column=3, columnspan=3, sticky="w", padx=6, pady=2)
+                        variable=self.var_att_names, command=self._update_summary).grid(row=6, column=3, columnspan=3, sticky="w", padx=6, pady=2)
         ttk.Checkbutton(f2, text="Resolve Exchange addresses to SMTP",
-                        variable=self.var_resolve).grid(row=7, column=0, columnspan=3, sticky="w", padx=6, pady=(2,6))
+                        variable=self.var_resolve, command=self._update_summary).grid(row=7, column=0, columnspan=3, sticky="w", padx=6, pady=(2,6))
 
         # 3) Save location (NEW: pick once; auto-name both outputs)
         f_loc = ttk.LabelFrame(root, text="3) Save location (base folder)", padding=10)
@@ -782,7 +801,10 @@ class App(tk.Tk):
         self.base_dir_var = tk.StringVar(value=get_desktop_folder())
         self.ent_base_dir = ttk.Entry(f_loc, textvariable=self.base_dir_var)
         self.ent_base_dir.grid(row=0, column=1, sticky="ew", padx=6, pady=6)
-        ttk.Button(f_loc, text="Browse…", command=self.browse_base_dir).grid(row=0, column=2, sticky="e", padx=6, pady=6)
+        self.ent_base_dir.bind("<FocusOut>", lambda *_: self._update_default_paths(force=True))
+        ttk.Button(f_loc, text="Browse...", command=self.browse_base_dir).grid(row=0, column=2, sticky="e", padx=6, pady=6)
+
+
 
         self.lbl_excel_name = ttk.Label(f_loc, text="Excel file name: (auto)")
         self.lbl_attach_name = ttk.Label(f_loc, text="Attachments folder name: (auto)")
@@ -800,17 +822,18 @@ class App(tk.Tk):
         self.var_type_ppt   = tk.BooleanVar(value=False)
         self.var_type_arc   = tk.BooleanVar(value=False)
         self.var_excl_inline= tk.BooleanVar(value=True)
-        ttk.Checkbutton(tf, text="PDF",    variable=self.var_type_pdf).grid(row=0, column=0, sticky="w", padx=8, pady=4)
-        ttk.Checkbutton(tf, text="Images", variable=self.var_type_img).grid(row=0, column=1, sticky="w", padx=8, pady=4)
-        ttk.Checkbutton(tf, text="Excel",  variable=self.var_type_xls).grid(row=0, column=2, sticky="w", padx=8, pady=4)
-        ttk.Checkbutton(tf, text="Documents", variable=self.var_type_doc).grid(row=0, column=3, sticky="w", padx=8, pady=4)
-        ttk.Checkbutton(tf, text="PowerPoint", variable=self.var_type_ppt).grid(row=0, column=4, sticky="w", padx=8, pady=4)
-        ttk.Checkbutton(tf, text="Archives", variable=self.var_type_arc).grid(row=0, column=5, sticky="w", padx=8, pady=4)
-        ttk.Checkbutton(tf, text="Exclude inline images (signatures)", variable=self.var_excl_inline)\
+        ttk.Checkbutton(tf, text="PDF",    variable=self.var_type_pdf, command=self._update_summary).grid(row=0, column=0, sticky="w", padx=8, pady=4)
+        ttk.Checkbutton(tf, text="Images", variable=self.var_type_img, command=self._update_summary).grid(row=0, column=1, sticky="w", padx=8, pady=4)
+        ttk.Checkbutton(tf, text="Excel",  variable=self.var_type_xls, command=self._update_summary).grid(row=0, column=2, sticky="w", padx=8, pady=4)
+        ttk.Checkbutton(tf, text="Documents", variable=self.var_type_doc, command=self._update_summary).grid(row=0, column=3, sticky="w", padx=8, pady=4)
+        ttk.Checkbutton(tf, text="PowerPoint", variable=self.var_type_ppt, command=self._update_summary).grid(row=0, column=4, sticky="w", padx=8, pady=4)
+        ttk.Checkbutton(tf, text="Archives", variable=self.var_type_arc, command=self._update_summary).grid(row=0, column=5, sticky="w", padx=8, pady=4)
+        ttk.Checkbutton(tf, text="Exclude inline images (signatures)", variable=self.var_excl_inline, command=self._update_summary)\
             .grid(row=1, column=0, columnspan=3, sticky="w", padx=8, pady=4)
         ttk.Label(tf, text="Custom extensions (comma-separated):").grid(row=1, column=3, sticky="e", padx=6, pady=4)
         self.var_custom_ext = tk.StringVar(value="")
         ttk.Entry(tf, textvariable=self.var_custom_ext).grid(row=1, column=4, columnspan=2, sticky="ew", padx=6, pady=4)
+        self.var_custom_ext.trace_add("write", lambda *_: self._update_summary())
         for i in range(6): tf.columnconfigure(i, weight=1)
 
         # 5) Save attachments (uses auto folder under base)
@@ -818,12 +841,15 @@ class App(tk.Tk):
         fa.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=6, pady=8)
         fa.columnconfigure(1, weight=1)
         self.var_save_atts = tk.BooleanVar(value=False)
-        ttk.Checkbutton(fa, text="Save attachments (to the auto-named folder below)", variable=self.var_save_atts)\
+        ttk.Checkbutton(fa, text="Save attachments (to the auto-named folder below)", variable=self.var_save_atts,
+                        command=self._update_summary)\
             .grid(row=0, column=0, columnspan=3, sticky="w", padx=6, pady=6)
         ttk.Label(fa, text="Attachments folder (auto):").grid(row=1, column=0, sticky="w", padx=6, pady=6)
         self.ent_attach_dir = ttk.Entry(fa)
         self.ent_attach_dir.grid(row=1, column=1, sticky="ew", padx=6, pady=6)
-        ttk.Button(fa, text="Override…", command=self.browse_attach_dir).grid(row=1, column=2, sticky="e", padx=6, pady=6)
+        self.ent_attach_dir.bind("<KeyRelease>", lambda *_: self._update_summary())
+        self.ent_attach_dir.bind("<FocusOut>", lambda *_: self._update_summary())
+        ttk.Button(fa, text="Override...", command=self.browse_attach_dir).grid(row=1, column=2, sticky="e", padx=6, pady=6)
 
         # 6) Output (uses auto file under base)
         f3 = ttk.LabelFrame(root, text="6) Output", padding=10)
@@ -831,12 +857,15 @@ class App(tk.Tk):
         f3.columnconfigure(1, weight=1)
         ttk.Label(f3, text="Excel path (auto):").grid(row=0, column=0, sticky="w", padx=6, pady=6)
         self.ent_out = ttk.Entry(f3); self.ent_out.grid(row=0, column=1, sticky="ew", padx=6, pady=6)
-        ttk.Button(f3, text="Override…", command=self.browse_out).grid(row=0, column=2, sticky="e", padx=6, pady=6)
+        self.ent_out.bind("<KeyRelease>", lambda *_: self._update_summary())
+        self.ent_out.bind("<FocusOut>", lambda *_: self._update_summary())
+        ttk.Button(f3, text="Override...", command=self.browse_out).grid(row=0, column=2, sticky="e", padx=6, pady=6)
+
 
         # Actions / Progress
         act = ttk.Frame(root, padding=(0,2))
         act.grid(row=6, column=0, columnspan=2, sticky="ew", padx=6, pady=(2,8))
-        act.columnconfigure(0, weight=1)
+        act.columnconfigure(0, weight=1); act.columnconfigure(2, weight=1)
         self.btn_preview = ttk.Button(act, text="Preview Count", command=self.preview_count)
         self.btn_export  = ttk.Button(act, text="Export to Excel", command=self.export_excel)
         self.btn_preview.grid(row=0, column=0, sticky="w", padx=4, pady=2)
@@ -854,15 +883,21 @@ class App(tk.Tk):
         # Status
         bar = ttk.Frame(self, padding=(8,4))
         bar.pack(fill="x", side="bottom")
-        ttk.Label(bar, textvariable=self.status_var).pack(side="left")
+        ttk.Label(bar, text="Status:", style="StatusCaption.TLabel").pack(side="left")
+        ttk.Label(bar, textvariable=self.status_var).pack(side="left", padx=(6, 0))
 
         self._update_default_paths(force=True)
         self._update_type_visibility()
+        self._update_summary()
 
     # ---- UI helpers ----
     def _apply_base_style(self):
         style = ttk.Style()
         style.configure("Header.TLabel", font=("Segoe UI", 16, "bold"))
+        style.configure("Subtitle.TLabel", font=("Segoe UI", 10))
+        style.configure("Summary.TLabel", font=("Segoe UI", 10))
+        style.configure("Badge.TLabel", font=("Segoe UI", 9, "bold"), foreground="#2563eb")
+        style.configure("StatusCaption.TLabel", font=("Segoe UI", 10))
 
     def _apply_theme(self, initial=False):
         if SVTTK_AVAILABLE:
@@ -872,6 +907,7 @@ class App(tk.Tk):
     def _update_folder_controls(self):
         state = "disabled" if self.var_all_folders.get() else "normal"
         self.cmb_folder.configure(state=state)
+        self._update_summary()
 
     def _update_default_paths(self, force=False):
         if self._auto_paths_locked and not force:
@@ -891,10 +927,68 @@ class App(tk.Tk):
         self.ent_attach_dir.insert(0, os.path.join(base, att_name))
         self.lbl_excel_name.config(text=f"Excel file name: {excel_name}")
         self.lbl_attach_name.config(text=f"Attachments folder name: {att_name}")
+        self._update_summary()
 
     def _update_type_visibility(self):
         show = self.var_has_att.get() == "yes"
         self.typeframe.grid() if show else self.typeframe.grid_remove()
+        self._update_summary()
+
+    def _get_date_text(self, widget) -> str:
+        try:
+            return widget.get().strip()
+        except Exception:
+            return ""
+
+    def _update_summary(self) -> None:
+        store = self.cmb_store.get().strip() or "No mailbox selected"
+        scope = "Entire account" if self.var_all_folders.get() else (self.folder_var.get().strip() or "No folder selected")
+        start_txt = self._get_date_text(self.dt_start)
+        end_txt = self._get_date_text(self.dt_end)
+        if start_txt and end_txt:
+            date_txt = f"{start_txt} -> {end_txt}"
+        elif start_txt:
+            date_txt = f"From {start_txt}"
+        elif end_txt:
+            date_txt = f"Until {end_txt}"
+        else:
+            date_txt = "Any date"
+        out_path = self.ent_out.get().strip() if hasattr(self, "ent_out") else ""
+        out_text = os.path.basename(out_path) if out_path else "Auto when exporting"
+        self.summary_var.set(f"Mailbox: {store} | Scope: {scope} | Date range: {date_txt} | Excel: {out_text}")
+
+        active = []
+        ha = self.var_has_att.get()
+        if ha == "yes":
+            active.append("attachments only")
+        elif ha == "no":
+            active.append("no attachments")
+        unread = self.var_unread.get()
+        if unread == "yes":
+            active.append("unread only")
+        elif unread == "no":
+            active.append("read only")
+        if not self.var_subfolders.get():
+            active.append("top folder only")
+        subj = self.ent_subj.get().strip()
+        if subj:
+            active.append(f"subject: {subj}")
+        sender = self.ent_from.get().strip()
+        if sender:
+            active.append(f"from: {sender}")
+        try:
+            max_val = int(self.spn_max.get() or "0")
+        except Exception:
+            max_val = 0
+        if max_val:
+            active.append(f"max {max_val}")
+        if ha == "yes":
+            if any(var.get() for var in (self.var_type_pdf, self.var_type_img, self.var_type_xls, self.var_type_doc, self.var_type_ppt, self.var_type_arc)) or self.var_custom_ext.get().strip():
+                active.append("attachment types")
+            if not self.var_excl_inline.get():
+                active.append("include inline images")
+        badge = ", ".join(active) if active else "none"
+        self.filter_badge_var.set(f"Active filters: {badge}")
 
     # ---- browsing ----
     def browse_base_dir(self):
@@ -913,12 +1007,14 @@ class App(tk.Tk):
         if f:
             self._auto_paths_locked = True
             self.ent_out.delete(0,"end"); self.ent_out.insert(0,f)
+            self._update_summary()
 
     def browse_attach_dir(self):
         d = filedialog.askdirectory(initialdir=self.ent_attach_dir.get())
         if d:
             self._auto_paths_locked = True
             self.ent_attach_dir.delete(0,"end"); self.ent_attach_dir.insert(0,d)
+            self._update_summary()
 
     # ---- stores / folders ----
     def refresh_stores(self):
@@ -927,6 +1023,7 @@ class App(tk.Tk):
             stores = list_store_names(ns)
             self.cmb_store["values"] = stores
             if stores: self.cmb_store.current(0); self.refresh_folders()
+            self._update_summary()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load stores: {e}")
 
@@ -938,6 +1035,7 @@ class App(tk.Tk):
             if store not in self._folder_cache:
                 self._folder_cache[store] = list_folder_paths(ns, store)
             self.cmb_folder["values"] = self._folder_cache[store]
+            self._update_summary()
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load folders: {e}")
 
@@ -993,7 +1091,7 @@ class App(tk.Tk):
     # ---- actions ----
     def preview_count(self):
         opts = self._gather_options()
-        messagebox.showinfo("Preview", "Preview mode only counts will be added later…")
+        messagebox.showinfo("Preview", "Preview mode only counts will be added later...")
 
     def export_excel(self):
         opts = self._gather_options()
