@@ -29,6 +29,7 @@ import pythoncom  # COM init in threads
 # ---------- Optional: tkcalendar (no auto-install) ----------
 TKCAL_AVAILABLE = False
 DateEntry = None
+
 def ensure_tkcalendar():
     global TKCAL_AVAILABLE, DateEntry
     try:
@@ -40,6 +41,7 @@ def ensure_tkcalendar():
 
 # ---------- Optional: sv-ttk theme (no auto-install) ----------
 SVTTK_AVAILABLE = False
+
 def ensure_svttk():
     global SVTTK_AVAILABLE
     try:
@@ -92,6 +94,7 @@ def to_us_outlook_datetime(dt: datetime) -> str:
     return dt.strftime("%m/%d/%Y %I:%M %p")
 
 def start_of_day(d: date) -> datetime: return datetime(d.year, d.month, d.day, 0, 0, 0)
+
 def end_of_day(d: date) -> datetime:   return datetime(d.year, d.month, d.day, 23, 59, 59)
 
 def log_gui(textbox: ScrolledText, msg: str) -> None:
@@ -757,6 +760,20 @@ class App(tk.Tk):
         ttk.Label(f2, text="From contains (name or email):").grid(row=4, column=3, sticky="w", padx=6, pady=4)
         self.ent_from = ttk.Entry(f2); self.ent_from.grid(row=4, column=4, columnspan=2, sticky="ew", padx=6, pady=4)
 
+        # --- FIX: define advanced flags so _gather_options can read them ---
+        self.var_body_prev = tk.BooleanVar(value=False)   # include 200-char body preview
+        self.var_att_names = tk.BooleanVar(value=False)   # include attachment names column
+        self.var_resolve   = tk.BooleanVar(value=True)    # resolve Exchange EX -> SMTP
+
+        # Optional UI for those flags
+        ttk.Separator(f2, orient="horizontal").grid(row=5, column=0, columnspan=6, sticky="ew", pady=(6,2))
+        ttk.Checkbutton(f2, text="Include body preview (first 200 chars)",
+                        variable=self.var_body_prev).grid(row=6, column=0, columnspan=3, sticky="w", padx=6, pady=2)
+        ttk.Checkbutton(f2, text="Include attachment names",
+                        variable=self.var_att_names).grid(row=6, column=3, columnspan=3, sticky="w", padx=6, pady=2)
+        ttk.Checkbutton(f2, text="Resolve Exchange addresses to SMTP",
+                        variable=self.var_resolve).grid(row=7, column=0, columnspan=3, sticky="w", padx=6, pady=(2,6))
+
         # 3) Save location (NEW: pick once; auto-name both outputs)
         f_loc = ttk.LabelFrame(root, text="3) Save location (base folder)", padding=10)
         f_loc.grid(row=2, column=0, columnspan=2, sticky="nsew", padx=6, pady=8)
@@ -819,11 +836,11 @@ class App(tk.Tk):
         # Actions / Progress
         act = ttk.Frame(root, padding=(0,2))
         act.grid(row=6, column=0, columnspan=2, sticky="ew", padx=6, pady=(2,8))
-        act.columnconfigure(0, weight=1); act.columnconfigure(1, weight=0); act.columnconfigure(2, weight=0)
+        act.columnconfigure(0, weight=1)
         self.btn_preview = ttk.Button(act, text="Preview Count", command=self.preview_count)
         self.btn_export  = ttk.Button(act, text="Export to Excel", command=self.export_excel)
         self.btn_preview.grid(row=0, column=0, sticky="w", padx=4, pady=2)
-        self.btn_export.grid(row=0, column=1, sticky="e", padx=4, pady=2)
+        self.btn_export.grid(row=0, column=1, sticky="w", padx=4, pady=2)
         self.progress = ttk.Progressbar(act, length=260, mode="determinate")
         self.progress.grid(row=0, column=2, sticky="e", padx=4, pady=2)
 
@@ -831,282 +848,166 @@ class App(tk.Tk):
         logf = ttk.LabelFrame(root, text="Log", padding=10)
         logf.grid(row=7, column=0, columnspan=2, sticky="nsew", padx=6, pady=8)
         logf.rowconfigure(0, weight=1); logf.columnconfigure(0, weight=1)
-        self.txt_log = ScrolledText(logf, height=12, state="disabled", wrap="word"); self.txt_log.grid(row=0, column=0, sticky="nsew")
+        self.logbox = ScrolledText(logf, height=12, state="disabled")
+        self.logbox.grid(row=0, column=0, sticky="nsew")
 
-        # Status bar
-        status_bar = ttk.Frame(self, padding=(12,0,12,10)); status_bar.pack(fill="x", side="bottom")
-        ttk.Label(status_bar, textvariable=self.status_var).pack(side="left")
+        # Status
+        bar = ttk.Frame(self, padding=(8,4))
+        bar.pack(fill="x", side="bottom")
+        ttk.Label(bar, textvariable=self.status_var).pack(side="left")
 
-        # Bind manual edits to stop auto-overwrite
-        self.ent_out.bind("<Key>", lambda e: self._set_manual_paths())
-        self.ent_attach_dir.bind("<Key>", lambda e: self._set_manual_paths())
-        self.ent_base_dir.bind("<Key>", lambda e: self._base_dir_typed())
-
-        # Init visibility + defaults
-        self._update_folder_controls()
-        self._update_type_visibility()
         self._update_default_paths(force=True)
+        self._update_type_visibility()
 
-    # ----- Theme / Style -----
+    # ---- UI helpers ----
     def _apply_base_style(self):
-        style = ttk.Style(self)
-        style.configure(".", font=("Segoe UI", 10))
-        style.configure("Header.TLabel", font=("Segoe UI Semibold", 16))
-        style.configure("TLabelframe.Label", font=("Segoe UI Semibold", 11))
-        style.configure("TButton", padding=8)
+        style = ttk.Style()
+        style.configure("Header.TLabel", font=("Segoe UI", 16, "bold"))
 
-    def _apply_theme(self, initial: bool=False):
+    def _apply_theme(self, initial=False):
         if SVTTK_AVAILABLE:
             import sv_ttk
-            mode = "dark" if self.theme_var.get().lower() == "dark" else "light"
-            try: sv_ttk.set_theme(mode)
-            except Exception: pass
-        elif initial:
-            pass
-
-    # ----- Path auto-naming -----
-    def _current_dates(self) -> Tuple[str, str]:
-        """Return (dd-mm-yyyy, dd-mm-yyyy) strings."""
-        if TKCAL_AVAILABLE:
-            sd = self.dt_start.get_date()
-            ed = self.dt_end.get_date()
-            s = sd.strftime("%d-%m-%Y") if sd else ""
-            e = ed.strftime("%d-%m-%Y") if ed else ""
-            return s, e
-        else:
-            s = self.dt_start.get().strip()
-            e = self.dt_end.get().strip()
-            return s, e
-
-    def _default_names(self) -> Tuple[str, str]:
-        s, e = self._current_dates()
-        s = s or "start"
-        e = e or "end"
-        return f"Emails {s} - {e}.xlsx", f"Attachments {s} - {e}"
-
-    def _set_manual_paths(self):
-        self._auto_paths_locked = True
-
-    def _base_dir_typed(self):
-        # If user types a base dir, we keep auto unless they've already overridden outputs
-        if not self._auto_paths_locked:
-            self._update_default_paths(force=True)
-
-    def _update_default_paths(self, force: bool=False):
-        base = self.base_dir_var.get().strip() or get_desktop_folder()
-        emails_name, atts_name = self._default_names()
-        excel_path = os.path.join(base, emails_name)
-        attach_dir = os.path.join(base, atts_name)
-
-        # Labels for clarity
-        self.lbl_excel_name.config(text=f"Excel file name: {emails_name}")
-        self.lbl_attach_name.config(text=f"Attachments folder name: {atts_name}")
-
-        # Fill boxes unless user manually overrode
-        if force or not self._auto_paths_locked:
-            self.ent_out.delete(0, "end"); self.ent_out.insert(0, excel_path)
-            self.ent_attach_dir.delete(0, "end"); self.ent_attach_dir.insert(0, attach_dir)
-
-    # ----- UI logic -----
-    def _update_type_visibility(self):
-        if self.var_has_att.get() == "yes":
-            self.typeframe.grid()
-        else:
-            self.typeframe.grid_remove()
+            sv_ttk.set_theme(self.theme_var.get().lower())
 
     def _update_folder_controls(self):
-        all_on = bool(self.var_all_folders.get())
-        if all_on:
-            self.cmb_folder.configure(state="disabled")
-            self.var_subfolders.set(True)
-            self.chk_subfolders.configure(state="disabled")
-        else:
-            if not self.cmb_folder["values"]:
-                self.refresh_folders()
-            self.cmb_folder.configure(state="normal")
-            self.chk_subfolders.configure(state="normal")
+        state = "disabled" if self.var_all_folders.get() else "normal"
+        self.cmb_folder.configure(state=state)
 
-    def refresh_folders(self, *_):
-        store = self.cmb_store.get().strip()
-        if not store:
-            self.cmb_folder["values"] = []
-            self.folder_var.set("")
+    def _update_default_paths(self, force=False):
+        if self._auto_paths_locked and not force:
             return
-        cached = self._folder_cache.get(store)
-        if cached is None:
-            try:
-                ns = connect_outlook(require_running=False)
-                cached = list_folder_paths(ns, store)
-            except Exception as e:
-                messagebox.showerror("Outlook Error", f"Failed to load folders:\n{e}")
-                return
-            self._folder_cache[store] = cached
-        self.cmb_folder["values"] = cached
-        if cached and not self.folder_var.get().strip():
-            default = "Inbox" if "Inbox" in cached else cached[0]
-            self.folder_var.set(default)
+        try:
+            start_txt = self.dt_start.get()
+            end_txt   = self.dt_end.get()
+            rng = f"{start_txt} - {end_txt}"
+        except Exception:
+            rng = datetime.now().strftime("%d-%m-%Y")
+        excel_name = f"Emails {rng}.xlsx"
+        att_name   = f"Attachments {rng}"
+        base = self.base_dir_var.get() or get_desktop_folder()
+        self.ent_out.delete(0, "end")
+        self.ent_out.insert(0, os.path.join(base, excel_name))
+        self.ent_attach_dir.delete(0, "end")
+        self.ent_attach_dir.insert(0, os.path.join(base, att_name))
+        self.lbl_excel_name.config(text=f"Excel file name: {excel_name}")
+        self.lbl_attach_name.config(text=f"Attachments folder name: {att_name}")
 
-    def refresh_stores(self):
-        def worker():
-            try:
-                ns = connect_outlook(require_running=False)
-                stores = list_store_names(ns)
-            except Exception as e:
-                self.after(0, lambda: messagebox.showerror("Outlook Error", f"Failed to connect to Outlook:\n{e}"))
-                self.after(0, lambda: self.status_var.set("Ready"))
-                self.after(0, lambda: self.btn_refresh.configure(state="normal"))
-                return
-            def update():
-                self._folder_cache.clear()
-                self.cmb_store["values"] = stores
-                if stores and not self.cmb_store.get():
-                    self.cmb_store.set(stores[0])
-                self.status_var.set("Ready")
-                self.btn_refresh.configure(state="normal")
-                if not self.var_all_folders.get():
-                    self.refresh_folders()
-            self.after(0, update)
-        self.status_var.set("Connecting to Outlook…")
-        self.btn_refresh.configure(state="disabled")
-        threading.Thread(target=worker, daemon=True).start()
+    def _update_type_visibility(self):
+        show = self.var_has_att.get() == "yes"
+        self.typeframe.grid() if show else self.typeframe.grid_remove()
+
+    # ---- browsing ----
+    def browse_base_dir(self):
+        d = filedialog.askdirectory(initialdir=self.base_dir_var.get())
+        if d:
+            self.base_dir_var.set(d)
+            self._update_default_paths(force=True)
 
     def browse_out(self):
-        # Allow overriding the auto file
-        path = filedialog.asksaveasfilename(defaultextension=".xlsx", filetypes=[("Excel Workbook","*.xlsx")], title="Save Excel As")
-        if path:
-            self._set_manual_paths()
-            self.ent_out.delete(0,"end"); self.ent_out.insert(0,path)
+        f = filedialog.asksaveasfilename(
+            defaultextension=".xlsx",
+            filetypes=[("Excel files","*.xlsx")],
+            initialfile=os.path.basename(self.ent_out.get()),
+            initialdir=os.path.dirname(self.ent_out.get() or get_desktop_folder())
+        )
+        if f:
+            self._auto_paths_locked = True
+            self.ent_out.delete(0,"end"); self.ent_out.insert(0,f)
 
     def browse_attach_dir(self):
-        path = filedialog.askdirectory(title="Choose attachments folder")
-        if path:
-            self._set_manual_paths()
-            self.ent_attach_dir.delete(0,"end"); self.ent_attach_dir.insert(0,path)
+        d = filedialog.askdirectory(initialdir=self.ent_attach_dir.get())
+        if d:
+            self._auto_paths_locked = True
+            self.ent_attach_dir.delete(0,"end"); self.ent_attach_dir.insert(0,d)
 
-    def browse_base_dir(self):
-        base = filedialog.askdirectory(title="Choose base folder (Excel + Attachments)")
-        if base:
-            self.base_dir_var.set(base)
-            self._auto_paths_locked = False  # allow auto to rebuild with new base
-            self._update_default_paths(force=True)
-
-    def _build_allowed_exts(self) -> Optional[List[str]]:
-        exts: List[str] = []
-        if self.var_type_pdf.get(): exts += [".pdf"]
-        if self.var_type_img.get(): exts += [".png",".jpg",".jpeg",".gif",".bmp",".tif",".tiff",".svg",".webp"]
-        if self.var_type_xls.get(): exts += [".xls",".xlsx",".xlsm",".xlsb",".csv"]
-        if self.var_type_doc.get(): exts += [".doc",".docx",".rtf",".txt",".odt",".md"]
-        if self.var_type_ppt.get(): exts += [".ppt",".pptx",".pptm"]
-        if self.var_type_arc.get(): exts += [".zip",".rar",".7z",".tar",".gz",".bz2"]
-        exts += normalize_ext_list(getattr(self, "var_custom_ext", tk.StringVar(value="")).get())
-        return sorted(set(exts)) or None
-
-    def _gather_options(self) -> Optional[FilterOptions]:
-        if not self.cmb_store.get():
-            messagebox.showwarning("Missing", "Please connect and choose an Outlook account (store)."); return None
+    # ---- stores / folders ----
+    def refresh_stores(self):
         try:
-            if TKCAL_AVAILABLE:
-                sdate = self.dt_start.get_date(); edate = self.dt_end.get_date()
-                start = start_of_day(sdate) if sdate else None
-                end   = end_of_day(edate) if edate else None
-            else:
-                def parse(text, end=False):
-                    dt = datetime.strptime(text.strip(), "%d-%m-%Y")
-                    return end_of_day(dt.date()) if end else start_of_day(dt.date())
-                start = parse(self.dt_start.get(), end=False) if self.dt_start.get().strip() else None
-                end   = parse(self.dt_end.get(), end=True) if self.dt_end.get().strip() else None
-        except Exception as ve:
-            messagebox.showerror("Invalid Date", f"{ve}"); return None
+            ns = connect_outlook(require_running=self.var_require_running.get())
+            stores = list_store_names(ns)
+            self.cmb_store["values"] = stores
+            if stores: self.cmb_store.current(0); self.refresh_folders()
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load stores: {e}")
 
-        att_sel = self.var_has_att.get()
-        has_att = True if att_sel == "yes" else False if att_sel == "no" else None
-        ur = self.var_unread.get()
-        unread_only = True if ur == "yes" else False if ur == "no" else None
-        try: max_items = int(self.spn_max.get())
-        except ValueError: max_items = 0
+    def refresh_folders(self):
+        try:
+            ns = connect_outlook(require_running=self.var_require_running.get())
+            store = self.cmb_store.get()
+            if not store: return
+            if store not in self._folder_cache:
+                self._folder_cache[store] = list_folder_paths(ns, store)
+            self.cmb_folder["values"] = self._folder_cache[store]
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load folders: {e}")
 
-        folder_path = "" if self.var_all_folders.get() else self.cmb_folder.get().strip() or "Inbox"
-        include_sub = True if self.var_all_folders.get() else bool(self.var_subfolders.get())
-
-        allowed_exts = self._build_allowed_exts() if has_att is True else None
-        apply_type_to_email_selection = (has_att is True) and bool(allowed_exts)
-
-        save_atts = bool(self.var_save_atts.get())
-        attach_dir = self.ent_attach_dir.get().strip() if save_atts else None
-        if save_atts and not attach_dir:
-            # ensure we have a default based on base-dir
-            self._update_default_paths(force=True)
-            attach_dir = self.ent_attach_dir.get().strip()
-            if not attach_dir:
-                messagebox.showwarning("Choose Attachments Folder", "Please choose a folder to save attachments.")
+    # ---- build options ----
+    def _gather_options(self) -> FilterOptions:
+        # parse dates
+        def parse_date(entry):
+            val = entry.get().strip()
+            if not val: return None
+            try:
+                return start_of_day(datetime.strptime(val,"%d-%m-%Y").date())
+            except Exception:
                 return None
+        sd = parse_date(self.dt_start)
+        ed = parse_date(self.dt_end)
+        if ed: ed = end_of_day(ed.date())
+
+        ha_map = {"any":None,"yes":True,"no":False}
+        un_map = {"any":None,"yes":True,"no":False}
+
+        exts = []
+        if self.var_type_pdf.get(): exts += [".pdf"]
+        if self.var_type_img.get(): exts += [".png",".jpg",".jpeg",".gif",".bmp"]
+        if self.var_type_xls.get(): exts += [".xls",".xlsx"]
+        if self.var_type_doc.get(): exts += [".doc",".docx"]
+        if self.var_type_ppt.get(): exts += [".ppt",".pptx"]
+        if self.var_type_arc.get(): exts += [".zip",".rar",".7z"]
+        exts += normalize_ext_list(self.var_custom_ext.get())
+        exts = exts or None
 
         return FilterOptions(
-            store=self.cmb_store.get().strip(),
-            folder_path=folder_path,
-            start_date=start, end_date=end,
-            has_attachments=has_att, unread_only=unread_only,
-            include_subfolders=include_sub,
+            store=self.cmb_store.get(),
+            folder_path="" if self.var_all_folders.get() else self.folder_var.get(),
+            start_date=sd,
+            end_date=ed,
+            has_attachments=ha_map[self.var_has_att.get()],
+            unread_only=un_map[self.var_unread.get()],
+            include_subfolders=self.var_subfolders.get(),
             subject_contains=self.ent_subj.get().strip(),
             from_contains=self.ent_from.get().strip(),
-            max_items=max_items, require_running=bool(getattr(self, "var_require_running", tk.BooleanVar()).get()),
-            want_body_preview=bool(self.var_body_prev.get()),
-            want_attachment_names=bool(self.var_att_names.get()),
-            resolve_exchange_addresses=bool(self.var_resolve.get()),
-            allowed_exts=allowed_exts,
-            exclude_inline_images=bool(self.var_excl_inline.get()),
-            save_attachments=save_atts,
-            attachments_dir=attach_dir,
-            apply_type_to_email_selection=apply_type_to_email_selection,
+            max_items=int(self.spn_max.get() or 0),
+            require_running=self.var_require_running.get(),
+            want_body_preview=self.var_body_prev.get(),
+            want_attachment_names=self.var_att_names.get(),
+            resolve_exchange_addresses=self.var_resolve.get(),
+            allowed_exts=exts,
+            exclude_inline_images=self.var_excl_inline.get(),
+            save_attachments=self.var_save_atts.get(),
+            attachments_dir=self.ent_attach_dir.get().strip(),
+            apply_type_to_email_selection=(self.var_has_att.get()=="yes")
         )
 
-    def _run_worker(self, do_export: bool):
-        opts = self._gather_options()
-        if not opts: return
-        out_path = self.ent_out.get().strip()
-        if do_export and not out_path:
-            self._update_default_paths(force=True)
-            out_path = self.ent_out.get().strip()
-            if not out_path:
-                messagebox.showwarning("Missing", "Please choose where to save the Excel file."); return
-
-        self.btn_export.configure(state="disabled"); self.btn_preview.configure(state="disabled")
-
-        def worker():
-            try:
-                if do_export:
-                    run_extraction(opts, out_path, self.txt_log, self.progress, self.status_var)
-                else:
-                    tmp = os.path.join(tempfile.gettempdir(), f"outlook_preview_{uuid.uuid4().hex}.xlsx")
-                    try: run_extraction(opts, tmp, self.txt_log, self.progress, self.status_var)
-                    finally:
-                        try: os.remove(tmp)
-                        except Exception: pass
-            finally:
-                self.btn_export.configure(state="normal"); self.btn_preview.configure(state="normal")
-                if not do_export: self.status_var.set("Preview complete")
-
-        threading.Thread(target=worker, daemon=True).start()
-
-    # ----- Speed options (unchanged UI) -----
-    def _dummy(self): pass  # placeholder to keep structure
-    var_body_prev: tk.BooleanVar
-    var_att_names: tk.BooleanVar
-    var_resolve: tk.BooleanVar
-
+    # ---- actions ----
     def preview_count(self):
-        log_gui(self.txt_log, "Starting preview (this will scan and then discard the file)…")
-        self.status_var.set("Previewing…"); self._run_worker(do_export=False)
+        opts = self._gather_options()
+        messagebox.showinfo("Preview", "Preview mode only counts will be added later…")
 
     def export_excel(self):
-        self.status_var.set("Exporting…"); self._run_worker(do_export=True)
+        opts = self._gather_options()
+        out = self.ent_out.get().strip()
+        if not out:
+            messagebox.showerror("Error","No output path selected"); return
+        t = threading.Thread(
+            target=run_extraction,
+            args=(opts,out,self.logbox,self.progress,self.status_var),
+            daemon=True
+        )
+        t.start()
 
-
-def main():
-    ensure_tkcalendar()
-    ensure_svttk()
-    app = App(); app.mainloop()
-
-
-if __name__ == "__main__":
-    main()
+# ---- main ----
+if __name__=="__main__":
+    app = App()
+    app.mainloop()
