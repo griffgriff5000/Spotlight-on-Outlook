@@ -1,0 +1,5 @@
+pandas
+openpyxl
+pywin32
+sv-ttk
+tkcalendar

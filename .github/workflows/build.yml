@@ -1,0 +1,55 @@
+name: Build OutlookEmailExtractor EXE
+
+on:
+  workflow_dispatch: {}
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Build EXE with PyInstaller
+        shell: bash
+        run: |
+          pyinstaller --noconfirm --onefile --windowed \
+            --name OutlookEmailExtractor \
+            --hidden-import win32timezone \
+            --hidden-import win32com \
+            --hidden-import pythoncom \
+            OutlookEmailExtractor.py
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: OutlookEmailExtractor-win
+          path: dist/OutlookEmailExtractor.exe
+
+  release:
+    needs: build-windows
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: OutlookEmailExtractor-win
+          path: ./release
+      - name: Create/Update GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./release/OutlookEmailExtractor.exe
