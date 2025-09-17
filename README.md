@@ -1,6 +1,5 @@
 <!--
   README for: Outlook Email Extractor
-  ⚠️ Replace OWNER/REPO in badges/links with your GitHub org+repo.
 -->
 
 <h1 align="center">📧 Outlook Email Extractor</h1>
@@ -10,11 +9,11 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/OWNER/REPO/actions">
-    <img alt="Build" src="https://img.shields.io/github/actions/workflow/status/OWNER/REPO/build.yml?branch=main&label=Build&logo=githubactions">
+  <a href="https://github.com/griffgriff5000/Spotlight-on-Outlook/actions">
+    <img alt="Build" src="https://img.shields.io/github/actions/workflow/status/griffgriff5000/Spotlight-on-Outlook/build.yml?branch=main&label=Build&logo=githubactions">
   </a>
-  <a href="https://github.com/OWNER/REPO/releases/latest">
-    <img alt="Download" src="https://img.shields.io/github/v/release/OWNER/REPO?display_name=release&sort=semver&label=Latest%20Release&logo=github">
+  <a href="https://github.com/griffgriff5000/Spotlight-on-Outlook/releases/latest">
+    <img alt="Download" src="https://img.shields.io/github/v/release/griffgriff5000/Spotlight-on-Outlook?display_name=release&sort=semver&label=Latest%20Release&logo=github">
   </a>
   <img alt="Python" src="https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white">
   <img alt="OS" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
@@ -24,7 +23,7 @@
 
 ## ⚡ TL;DR
 
-1. **Download** the ZIP from **[Releases → Latest](https://github.com/OWNER/REPO/releases/latest)**  
+1. **Download** the ZIP from **[Releases → Latest](https://github.com/griffgriff5000/Spotlight-on-Outlook/releases/latest)**  
 2. **Unzip** it anywhere (e.g. Desktop)  
 3. **Run** `Outlook Email Extractor.exe`  
 4. Click **Connect / Load Accounts** → set filters → **Export to Excel** ✅
@@ -71,4 +70,5 @@
 | **Attachments** *(optional)* | `ReceivedTime`, `Subject`, `SenderEmail`, `AttachmentName`, `AttachmentPath`, Excel `Link` to open file |
 
 ### Attachments on disk (optional)
+
 
